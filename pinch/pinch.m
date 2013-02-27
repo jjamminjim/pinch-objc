@@ -130,6 +130,8 @@ struct zip_file_header {
 #ifdef PINCH_USE_ASIHTTPREQUEST
 @synthesize runAsynchronous;
 #endif
+@synthesize full_total;
+@synthesize running_total;
 
 - (id)init
 {
@@ -138,6 +140,8 @@ struct zip_file_header {
 #ifdef PINCH_USE_ASIHTTPREQUEST
         runAsynchronous = YES;
 #endif
+        full_total = 0;
+        running_total = 0;
     }
     return self;
 }
@@ -155,7 +159,7 @@ struct zip_file_header {
                                          
  */
 
-- (void)fetchFile:(zipentry*)entry completionBlock:(pinch_file_completion)completionBlock;
+- (void)fetchFile:(zipentry*)entry completionBlock:(pinch_file_completion)completionBlock progressBlock:(pinch_progress)progressBlock
 {
     entry.data = nil;
     int length = sizeof(struct zip_file_header) + entry.sizeCompressed + entry.filenameLength + entry.extraFieldLength;
@@ -192,8 +196,16 @@ struct zip_file_header {
         NSLog(@"Received: %d", len);
         struct zip_file_header file_record;
         int idx = 0;
-
-// Extract fields with a macro, if we would need to swap byteorder this would be the place
+        
+        running_total += len;
+        //        NSLog(@"## fetchFile: bytes recieved %llu out of %llu", running_total, full_total);
+        
+        if (progressBlock)
+        {
+            progressBlock(running_total, full_total);
+        }
+        
+        // Extract fields with a macro, if we would need to swap byteorder this would be the place
 #define GETFIELD( _field ) \
 memcpy(&file_record._field, &cptr[idx], sizeof(file_record._field)); \
 idx += sizeof(file_record._field)
@@ -292,7 +304,7 @@ idx += sizeof(file_record._field)
 
 // Support method to parse the zip file content directory
 
-- (void)parseCentralDirectory:(NSString*)url withOffset:(int)offset withLength:(int)length completionBlock:(pinch_directory_completion)completionBlock
+- (void)parseCentralDirectory:(NSString*)url withOffset:(int)offset withLength:(int)length completionBlock:(pinch_directory_completion)completionBlock  progressBlock:(pinch_progress)progressBlock
 {
     NSString *rangeValue = [NSString stringWithFormat:@"bytes=%d-%d", offset, offset+length-1];
     
@@ -323,7 +335,15 @@ idx += sizeof(file_record._field)
         int len = [data length];
         NSLog(@"## parseCentralDirectory: ended ##");
         NSLog(@"Received: %d", len);
-
+        
+        running_total += len;
+        //        NSLog(@"## fetchFile: bytes recieved %llu out of %llu", running_total, full_total);
+        
+        if (progressBlock)
+        {
+            progressBlock(running_total, full_total);
+        }
+        
         // 46 ?!? That's the record length up to the filename see 
         // http://en.wikipedia.org/wiki/ZIP_(file_format)#File_headers
         
@@ -402,7 +422,7 @@ idx += sizeof(dir_record._field)
 
 // Support method to find the zip file content directory
 
-- (void)findCentralDirectory:(NSString*)url withFileLength:(int)length completionBlock:(pinch_directory_completion)completionBlock
+- (void)findCentralDirectory:(NSString*)url withFileLength:(int)length completionBlock:(pinch_directory_completion)completionBlock   progressBlock:(pinch_progress)progressBlock
 {
     NSString *rangeValue = [NSString stringWithFormat:@"bytes=%d-%d", length-4096, length-1];
     
@@ -437,6 +457,14 @@ idx += sizeof(dir_record._field)
         
         NSLog(@"## findCentralDirectory: ended ##");
         NSLog(@"Received: %d", len);
+        
+        running_total += len;
+        //        NSLog(@"## fetchFile: bytes recieved %llu out of %llu", running_total, full_total);
+        
+        if (progressBlock)
+        {
+            progressBlock(running_total, full_total);
+        }
         
         do {
             char *fptr = memchr(cptr, 0x50, len);
@@ -477,7 +505,8 @@ idx += sizeof(end_record._field)
             [self parseCentralDirectory:url 
                              withOffset:end_record.offsetOfStartOfCentralDirectory 
                              withLength:end_record.sizeOfCentralDirectory
-                        completionBlock:completionBlock];
+                            completionBlock:completionBlock
+                            progressBlock:progressBlock];
         }
     }
      
@@ -513,7 +542,7 @@ idx += sizeof(end_record._field)
                                                         /___/     
  */
 
-- (void)fetchDirectory:(NSString*)url completionBlock:(pinch_directory_completion)completionBlock
+- (void)fetchDirectory:(NSString*)url completionBlock:(pinch_directory_completion)completionBlock progressBlock:(pinch_progress)progressBlock
 {
     
 #ifdef PINCH_USE_AFNETWORKING
@@ -524,7 +553,7 @@ idx += sizeof(end_record._field)
         
     [operation setCompletionBlock:^{
         if (operation.responseStatusCode == 200) {
-            [self findCentralDirectory:url withFileLength:operation.fileLength completionBlock:completionBlock];
+            [self findCentralDirectory:url withFileLength:operation.fileLength completionBlock:completionBlock progressBlock:progressBlock];
         } else {
             NSLog(@"## fetchDirectory: failed ##");
             completionBlock(nil);
@@ -546,6 +575,9 @@ idx += sizeof(end_record._field)
     [request setHeadersReceivedBlock:^(NSDictionary *headers) {
         int length = [[headers objectForKey:@"Content-Length"] intValue];
         NSLog(@"Length: %d bytes", length);
+        
+        full_total = length;
+        
         [request clearDelegatesAndCancel];
         // Now get the table-of-content
         [self findCentralDirectory:url withFileLength:length completionBlock:completionBlock];

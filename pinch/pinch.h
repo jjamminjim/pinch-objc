@@ -59,18 +59,23 @@
 
 typedef void(^pinch_file_completion)(zipentry *entry);
 typedef void(^pinch_directory_completion)(NSArray *directory);
+typedef void(^pinch_progress)(unsigned long long size, unsigned long long total);
 
 @interface pinch : NSObject {
 #ifdef PINCH_USE_ASIHTTPREQUEST
     BOOL runAsynchronous;
 #endif
+    unsigned long long full_total;
+    unsigned long long running_total;
 }
 
 #ifdef PINCH_USE_ASIHTTPREQUEST
 @property (nonatomic, assign) BOOL runAsynchronous;
 #endif
+@property (nonatomic, readonly) unsigned long long full_total;
+@property (nonatomic, readonly) unsigned long long running_total;
 
-- (void)fetchFile:(zipentry*)entry completionBlock:(pinch_file_completion)completionBlock;
-- (void)fetchDirectory:(NSString*)url completionBlock:(pinch_directory_completion)completionBlock;
+- (void)fetchFile:(zipentry*)entry completionBlock:(pinch_file_completion)completionBlock progressBlock:(pinch_progress)progressBlock;
+- (void)fetchDirectory:(NSString*)url completionBlock:(pinch_directory_completion)completionBlock progressBlock:(pinch_progress)progressBlock;
 
 @end
